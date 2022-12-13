@@ -1,6 +1,8 @@
 """Support for Vivotek IP Cameras."""
 from __future__ import annotations
 
+import logging
+
 from libpyvivotek import VivotekCamera
 import voluptuous as vol
 
@@ -21,9 +23,7 @@ from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 
-CONF_FRAMERATE = "framerate"
-CONF_SECURITY_LEVEL = "security_level"
-CONF_STREAM_PATH = "stream_path"
+from .const import CONF_FRAMERATE, CONF_SECURITY_LEVEL, CONF_STREAM_PATH, DOMAIN
 
 DEFAULT_CAMERA_BRAND = "VIVOTEK"
 DEFAULT_NAME = "VIVOTEK Camera"
@@ -47,6 +47,38 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
         vol.Optional(CONF_STREAM_PATH, default=DEFAULT_STREAM_SOURCE): cv.string,
     }
 )
+
+
+async def async_setup_entry(
+    hass: HomeAssistant,
+    config_entry: ConfigEntry,
+    async_add_entities: AddEntitiesCallback,
+) -> None:
+    """Set up the config entry."""
+    creds = f"{config[CONF_USERNAME]}:{config[CONF_PASSWORD]}"
+    args = {
+        "config": config,
+        "cam": VivotekCamera(
+            host=config[CONF_IP_ADDRESS],
+            port=(443 if config[CONF_SSL] else 80),
+            verify_ssl=config[CONF_VERIFY_SSL],
+            usr=config[CONF_USERNAME],
+            pwd=config[CONF_PASSWORD],
+            digest_auth=config[CONF_AUTHENTICATION] == HTTP_DIGEST_AUTHENTICATION,
+            sec_lvl=config[CONF_SECURITY_LEVEL],
+        ),
+        "stream_source": f"rtsp://{creds}@{config[CONF_IP_ADDRESS]}:554/{config[CONF_STREAM_PATH]}",
+    }
+    camera = VivotekCam(**args)
+    unique_id = config_entry.unique_id
+    if unique_id is None:
+        unique_id = camera.get_serial()
+        hass.config_entries.async_update_entry(
+            config_entry, data={**config_entry.data, "unique_id": unique_id}
+        )
+        logging.getLogger(__package__).debug(
+            "===== setting pjlink unique_id: %s ", unique_id
+        )
 
 
 def setup_platform(
@@ -85,9 +117,20 @@ class VivotekCam(Camera):
         self._cam = cam
         self._frame_interval = 1 / config[CONF_FRAMERATE]
         self._motion_detection_enabled = False
-        self._model_name = None
         self._name = config[CONF_NAME]
         self._stream_source = stream_source
+
+    @property
+    def device_info(self):
+        """Device info to create a device."""
+        return {
+            "identifiers": {(DOMAIN, self.unique_id)},
+            "name": self.name,
+            "manufacturer": self.brand,
+            "model": self.model,
+            "sw_version": self.sw_version,
+            "via_device": (DOMAIN, self.unique_id),
+        }
 
     @property
     def frame_interval(self):
@@ -134,6 +177,28 @@ class VivotekCam(Camera):
         """Return the camera model."""
         return self._model_name
 
+    @property
+    def sw_version(self):
+        """Return the camera software version."""
+        return self._firmware_version
+
+    def get_serial(self):
+        """
+        Return the serial number reported by the camera.
+        This should be the MAC address without colons.
+        """
+        return self._cam.get_param("system_info_serialnumber")
+
+    @property
+    def unique_id(self) -> str:
+        """Return a unique identifier for this device."""
+        return self._unique_id
+
     def update(self):
         """Update entity status."""
-        self._model_name = self._cam.model_name
+        # Get more info from the camera itself
+        if self._model_name is None:
+            self._model_name = self._cam.model_name
+        if self._firmware_version is None:
+            self._firmware_version = self._cam.get_param("system_info_firmwareversion")
+            self._unique_id = self._firmware_version

@@ -408,6 +408,7 @@ FLOWS = {
         "vesync",
         "vicare",
         "vilfo",
+        "vivotek",
         "vizio",
         "vlc_telnet",
         "volumio",

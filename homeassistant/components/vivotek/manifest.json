@@ -1,4 +1,5 @@
 {
+  "config_flow": true,
   "domain": "vivotek",
   "name": "VIVOTEK",
   "documentation": "https://www.home-assistant.io/integrations/vivotek",

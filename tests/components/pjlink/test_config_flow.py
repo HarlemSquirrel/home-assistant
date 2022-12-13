@@ -66,3 +66,7 @@ async def test_full_user_flow(hass: HomeAssistant) -> None:
     registry = entity_registry.async_get(hass)
     entry = registry.async_get("media_player.new_thing")
     assert entry.unique_id == entry.config_entry_id
+
+
+async def test_async_step_zeroconf(hass: HomeAssistant) -> None:
+    """Test the zeroconf configuration flow."""
